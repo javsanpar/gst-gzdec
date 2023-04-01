@@ -107,8 +107,6 @@ static void gst_gzdec_set_property (GObject * object,
 static void gst_gzdec_get_property (GObject * object,
     guint prop_id, GValue * value, GParamSpec * pspec);
 
-static gboolean gst_gzdec_sink_event (GstPad * pad,
-    GstObject * parent, GstEvent * event);
 static GstFlowReturn gst_gzdec_chain (GstPad * pad,
     GstObject * parent, GstBuffer * buf);
 
@@ -151,8 +149,6 @@ static void
 gst_gzdec_init (Gstgzdec * filter)
 {
   filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
-  gst_pad_set_event_function (filter->sinkpad,
-      GST_DEBUG_FUNCPTR (gst_gzdec_sink_event));
   gst_pad_set_chain_function (filter->sinkpad,
       GST_DEBUG_FUNCPTR (gst_gzdec_chain));
   GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
@@ -197,38 +193,7 @@ gst_gzdec_get_property (GObject * object, guint prop_id,
   }
 }
 
-/* GstElement vmethod implementations */
-
-/* this function handles sink events */
-static gboolean
-gst_gzdec_sink_event (GstPad * pad, GstObject * parent,
-    GstEvent * event)
 {
-  Gstgzdec *filter;
-  gboolean ret;
-
-  filter = GST_GZDEC (parent);
-
-  GST_LOG_OBJECT (filter, "Received %s event: %" GST_PTR_FORMAT,
-      GST_EVENT_TYPE_NAME (event), event);
-
-  switch (GST_EVENT_TYPE (event)) {
-    case GST_EVENT_CAPS:
-    {
-      GstCaps *caps;
-
-      gst_event_parse_caps (event, &caps);
-      /* do something with the caps */
-
-      /* and forward */
-      ret = gst_pad_event_default (pad, parent, event);
-      break;
-    }
-    default:
-      ret = gst_pad_event_default (pad, parent, event);
-      break;
-  }
-  return ret;
 }
 
 /* chain function
