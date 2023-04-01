@@ -61,8 +61,10 @@
 #endif
 
 #include <gst/gst.h>
+#include <stdio.h>
 
 #include "gstgzdec.h"
+#include "zlib.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_gzdec_debug);
 #define GST_CAT_DEFAULT gst_gzdec_debug
@@ -87,13 +89,13 @@ enum
 static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
+    GST_STATIC_CAPS ("application/unknown")
     );
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
+    GST_STATIC_CAPS ("application/x-gzip")
     );
 
 #define gst_gzdec_parent_class parent_class
@@ -193,7 +195,66 @@ gst_gzdec_get_property (GObject * object, guint prop_id,
   }
 }
 
+GstBuffer*
+decompress (GstBuffer *input_buffer)
 {
+  GstBuffer *output_buffer = NULL;
+  GstMapInfo map_in, map_out;
+  z_stream strm;
+  int ret;
+
+  gst_buffer_map (input_buffer, &map_in, GST_MAP_READ);
+
+  output_buffer = gst_buffer_new_allocate (NULL, map_in.size, NULL);
+  gst_buffer_map (output_buffer, &map_out, GST_MAP_WRITE);
+
+  /* allocate inflate state */
+  strm.zalloc = Z_NULL;
+  strm.zfree = Z_NULL;
+  strm.opaque = Z_NULL;
+  strm.avail_in = 0;
+  strm.next_in = Z_NULL;
+  ret = inflateInit2(&strm, 16 + MAX_WBITS);
+  if (ret != Z_OK) {
+      gst_buffer_unmap (input_buffer, &map_in);
+      gst_buffer_unmap (output_buffer, &map_out);
+      return NULL;
+  }
+
+  /* decompress until deflate stream ends or end of file */
+  do {
+      strm.avail_in = map_in.size;
+      if (strm.avail_in == 0)
+          break;
+      strm.next_in = map_in.data;
+
+      /* run inflate() on input until output buffer not full */
+      do {
+          strm.avail_out = map_out.size;
+          strm.next_out = map_out.data;
+          ret = inflate(&strm, Z_NO_FLUSH);
+          switch (ret) {
+          case Z_NEED_DICT:
+          case Z_DATA_ERROR:
+          case Z_MEM_ERROR:
+          case Z_STREAM_ERROR:
+              inflateEnd(&strm);
+              gst_buffer_unmap (input_buffer, &map_in);
+              gst_buffer_unmap (output_buffer, &map_out);
+              return NULL;
+          }
+
+      } while (strm.avail_out == 0);
+
+      /* done when inflate() says it's done */
+  } while (ret != Z_STREAM_END);
+
+  /* clean up and return */
+  inflateEnd(&strm);
+  gst_buffer_unmap (input_buffer, &map_in);
+  gst_buffer_unmap (output_buffer, &map_out);
+
+  return output_buffer;
 }
 
 /* chain function
@@ -202,17 +263,21 @@ gst_gzdec_get_property (GObject * object, guint prop_id,
 static GstFlowReturn
 gst_gzdec_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 {
+  GstBuffer *outbuf;
   Gstgzdec *filter;
 
   filter = GST_GZDEC (parent);
 
-  if (filter->silent == FALSE)
-    g_print ("I'm plugged, therefore I'm in.\n");
+  outbuf = decompress (buf);
+  gst_buffer_unref (buf);
+  if (!outbuf) {
+    /* something went wrong - signal an error */
+    GST_ELEMENT_ERROR (GST_ELEMENT (filter), STREAM, FAILED, (NULL), (NULL));
+    return GST_FLOW_ERROR;
+  }
 
-  /* just push out the incoming buffer without touching it */
-  return gst_pad_push (filter->srcpad, buf);
+  return gst_pad_push (filter->srcpad, outbuf);
 }
-
 
 /* entry point to initialize the plug-in
  * initialize the plug-in itself

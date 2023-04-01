@@ -24,6 +24,8 @@ cdata.set_quoted('GST_PACKAGE_NAME', 'GStreamer GZIP decoder plugin')
 cdata.set_quoted('GST_PACKAGE_ORIGIN', 'https://github.com/javsanpar/gst-gzdec')
 configure_file(output : 'config.h', configuration : cdata)
 
+zlib_dep = dependency('zlib')
+
 # The gzdec Plugin
 gstgzdec_sources = [
   'src/gstgzdec.c',
@@ -32,7 +34,7 @@ gstgzdec_sources = [
 gstgzdec = library('gstgzdec',
   gstgzdec_sources,
   c_args: plugin_c_args,
-  dependencies : [gst_dep, gstbase_dep],
+  dependencies : [gst_dep, gstbase_dep, zlib_dep],
   install : true,
   install_dir : plugins_install_dir,
 )
